@@ -21,6 +21,10 @@ public_users.post("/register", (req,res) => {
         return res.status(401).send('Username already registered. Choose other name');
     }
     
+    users.push({
+        username : username,
+        password : password
+    })
   return res.status(200).send('User succesfully registered ');
 });
 
