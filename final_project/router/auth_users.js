@@ -22,25 +22,14 @@ const isValid = (username)=>{ //returns boolean
     return true;
 }
 
-const authenticatedUser = (username,password)=>{ //returns boolean
+const authenticatedUser = (token)=>{ //returns boolean
     
-    jwt.verify({
-        username : username,
-        password : password
-    },'SECRET_JWT', (err,auth) => {
-
+    jwt.verify(token,'SECRET_JWT', (err,auth) => {
+        console.log(err)
         if(err){
             return false;
         }
 
-        let userFinded = users.find((user) => {
-            return user.username === username && user.password === password;
-        })
-
-        if(!userFinded){
-            return false;
-        }
-    
         return true;
     })
 }
@@ -48,7 +37,7 @@ const authenticatedUser = (username,password)=>{ //returns boolean
 //only registered users can login
 regd_users.post("/login", (req,res) => {
   const {username,password} = req.body;
-  console.log(req.body)
+
   let userFinded = users.find((user) => {
     return user.username === username && user.password === password;
   })
@@ -57,15 +46,11 @@ regd_users.post("/login", (req,res) => {
       return res.status(401).send('Incorrect credentials');
   }
 
-  let accessToken = jwt.sign(userFinded, 'SECRET_JWT',{
-    algorithm : 'HS256'
-    })
+  let accessToken = jwt.sign({username : username, password : password}, 'SECRET_JWT',{expiresIn : '2h'});
 
-    req.session.authorization = {
-        accessToken : accessToken,
-        username : username,
-        password : password
-    }
+    req.session.accessToken = accessToken;
+    req.session.username = username;
+    req.session.password = password;
 
   return res.status(200).json(
       {
@@ -76,25 +61,33 @@ regd_users.post("/login", (req,res) => {
 
 // Add a book review
 regd_users.put("/auth/review/:isbn", (req, res) => {
-  if(!authenticatedUser(req.session.authorization.username, req.session.authorization.password)){
+
+  if(authenticatedUser(req.session.accessToken)){
     return res.status(401).send('You are not logged in.')
   }
+
+  if(!req.body.review){
+    return res.status(401).send('Review body not sended');
+  }
+
   //We search the book and added the review
   let isbn = req.params.isbn;
   let bookEntries = Object.entries(books);
-  let {reviews} = bookEntries.find(([key]) => key === isbn);
+  let [key,data] = bookEntries.find(([key]) => key === isbn);
 
-  if(!reviews){
+  if(key === undefined && data === undefined){
     return res.status(401).send(`Cannot find the book with id ${isbn}`);
   }
 
   //Check if the actual user has uploaded another review
   let {review} = req.body;
+  let {reviews} = data
   let reviewsEntries = Object.entries(reviews);
-  let reviewOfCustomer = reviewsEntries.find(([key]) => key === req.session.authorization.username);
+  let [,review_of_book] = reviewsEntries.find(([key]) => key === req.session.username) || [undefined, undefined];
 
-  review[req.session.authorization.username] = review;
-  if(!reviewOfCustomer){
+  reviews[req.session.username] = review;
+
+  if(!review_of_book){
       return res.status(200).send('Review added');
   }
 
@@ -103,28 +96,32 @@ regd_users.put("/auth/review/:isbn", (req, res) => {
 });
 
 regd_users.delete("/auth/review/:isbn",(req,res) => {
-    if(!authenticatedUser(req.session.authorization.username, req.session.authorization.password)){
-        return res.status(401).send('You are not logged in.')
-      }
-      //We search the book and deleted the review
-      let isbn = req.params.isbn;
-      let bookEntries = Object.entries(books);
-      let {reviews} = bookEntries.find(([key]) => key === isbn);
-    
-      if(!reviews){
-        return res.status(401).send(`Cannot find the book with id ${isbn}`);
-      }
-    
-      //Check if the actual user has uploaded another review
-      let {review} = req.body;
-      let reviewsEntries = Object.entries(reviews);
-      let reviewOfCustomer = reviewsEntries.find(([key]) => key === req.session.authorization.username);
-    
-      if(!reviewOfCustomer){
-          return res.status(200).send('Dont have reviews');
-      }
-      review[req.session.authorization.username] = undefined;
-      return res.status(200).send('Review deleted');
+  if(authenticatedUser(req.session.accessToken)){
+    return res.status(401).send('You are not logged in.')
+  }
+
+  //We search the book and added the review
+  let isbn = req.params.isbn;
+  let bookEntries = Object.entries(books);
+  let [key,data] = bookEntries.find(([key]) => key === isbn);
+
+  if(key === undefined && data === undefined){
+    return res.status(401).send(`Cannot find the book with id ${isbn}`);
+  }
+
+  //Check if the actual user has uploaded another review
+  let {review} = req.body;
+  let {reviews} = data
+  let reviewsEntries = Object.entries(reviews);
+  let [,review_of_book] = reviewsEntries.find(([key]) => key === req.session.username) || [undefined, undefined];
+
+  reviews[req.session.username] = undefined;
+
+  if(!review_of_book){
+      return res.status(200).send('Review not existed');
+  }
+
+  return res.status(200).send('Review deleted');
 })
 
 module.exports.authenticated = regd_users;
